@@ -22,31 +22,30 @@ try {
     $dbPath = 'wishes.db';
     $pdo = new PDO("sqlite:$dbPath");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
+
     // Get the wish from database
     $stmt = $pdo->prepare("SELECT id, wish_text, is_correct FROM wishes WHERE id = :id");
     $stmt->execute([':id' => $wishId]);
     $wish = $stmt->fetch(PDO::FETCH_ASSOC);
-    
+
     if (!$wish) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Wish not found']);
         exit;
     }
-    
+
     // Check if wish is correct (150+ characters)
     if (!$wish['is_correct']) {
         echo json_encode([
-            'success' => false, 
+            'success' => false,
             'message' => 'Wish is too short for decomposition. Please provide a more detailed wish (at least 150 characters).'
         ]);
         exit;
     }
-    
-    // AI API Configuration
-    $apiKey = $api_config['openai'];
-    $apiUrl = 'https://api.openai.com/v1/chat/completions';
-    
+
+    $apiKey = $api_config['openai']['api_key'] ?? null;
+    $apiUrl = $api_config['openai']['api_url'] ?? null;
+
     // Prepare the prompt for AI decomposition
     $prompt = "Please analyze the following wish and break it down into clear, achievable goals and specific steps. 
     
@@ -74,7 +73,7 @@ try {
     }
     
     Make sure each goal is specific, measurable, and achievable. Each step should be a small, actionable task that can be completed in a reasonable time frame.";
-    
+
     // Prepare the request to AI API
     $requestData = [
         'model' => 'gpt-3.5-turbo',
@@ -105,32 +104,32 @@ try {
         CURLOPT_TIMEOUT => 30,
         CURLOPT_SSL_VERIFYPEER => true
     ]);
-    
+
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlError = curl_error($ch);
     curl_close($ch);
-    
+
     if ($curlError) {
         throw new Exception("cURL error: " . $curlError);
     }
-    
+
     if ($httpCode !== 200) {
-        throw new Exception("API request failed with HTTP code: " . $httpCode);
+        throw new Exception("API request failed with HTTP code: " . $httpCode . " and response: " . $response);
     }
-    
+
     $apiResponse = json_decode($response, true);
-    
+
     if (!$apiResponse || !isset($apiResponse['choices'][0]['message']['content'])) {
-    print_r($apiResponse);
+        print_r($apiResponse);
         throw new Exception("Invalid API response format");
     }
-    
+
     $aiContent = $apiResponse['choices'][0]['message']['content'];
-    
+
     // Try to parse the JSON response from AI
     $decomposition = json_decode($aiContent, true);
-    
+
     if (!$decomposition) {
         // If JSON parsing fails, return the raw AI response
         $decomposition = [
@@ -139,7 +138,7 @@ try {
             'summary' => 'AI response could not be parsed as JSON'
         ];
     }
-    
+
     // Store the decomposition result in database
     $stmt = $pdo->prepare("
         UPDATE wishes 
@@ -147,12 +146,12 @@ try {
             decomposed_at = CURRENT_TIMESTAMP 
         WHERE id = :id
     ");
-    
+
     $stmt->execute([
         ':result' => json_encode($decomposition),
         ':id' => $wishId
     ]);
-    
+
     // Return success response
     echo json_encode([
         'success' => true,
@@ -165,20 +164,18 @@ try {
             'tokens_used' => $apiResponse['usage']['total_tokens'] ?? 0
         ]
     ]);
-    
 } catch (PDOException $e) {
     error_log("Database error in split_to_goals.php: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
-        'success' => false, 
+        'success' => false,
         'message' => 'Database error occurred. Please try again later.'
     ]);
 } catch (Exception $e) {
     error_log("Error in split_to_goals.php: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
-        'success' => false, 
+        'success' => false,
         'message' => 'Error processing request: ' . $e->getMessage()
     ]);
 }
-?>
