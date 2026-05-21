@@ -1,0 +1,20 @@
+# Environment & secrets
+.env
+
+# SQLite database
+*.db
+*.sqlite
+*.sqlite3
+
+# PHP
+vendor/
+composer.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
